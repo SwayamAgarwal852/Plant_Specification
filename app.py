@@ -3,15 +3,13 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
-import json
 import io
 import matplotlib.cm as cm
 
 st.set_page_config(page_title="Plant Species Identification", layout="centered")
 
-# ---------- DEFAULT PATHS / SETTINGS (edit if needed) ----------
-DEFAULT_MODEL_PATH = "plant_model.h5"          # make sure this file is in your repo
-DEFAULT_LABELS_PATH = "models/labels.json"     # adjust if your labels file is elsewhere
+# ---------- DEFAULT PATHS / SETTINGS ----------
+DEFAULT_MODEL_PATH = "plant_model.h5"    # make sure this file is in your repo
 DEFAULT_IMG_SIZE = 128
 
 # ---------- CACHING helpers ----------
@@ -22,13 +20,6 @@ def load_model_cached(path):
         return model
     except Exception as e:
         raise RuntimeError(f"Failed to load model from {path}: {e}")
-
-@st.cache_data
-def load_labels_cached(path):
-    with open(path, 'r') as f:
-        raw = json.load(f)
-    # convert keys to ints if saved as strings
-    return {int(k): v for k, v in raw.items()}
 
 # ---------- Utility functions ----------
 def preprocess_image_pil(pil_img: Image.Image, target_size: int, preprocess_option: str):
@@ -49,14 +40,12 @@ def preprocess_image_pil(pil_img: Image.Image, target_size: int, preprocess_opti
 def predict_topk(model, img_arr, k=3):
     x = np.expand_dims(img_arr, axis=0)
     preds = model.predict(x, verbose=0)[0]
-    # if logits, convert to softmax
     if np.any(preds < 0) or preds.sum() <= 0:
         preds = tf.nn.softmax(preds).numpy()
     topk = preds.argsort()[-k:][::-1]
     return [(int(i), float(preds[i])) for i in topk]
 
 def find_last_conv_layer(model):
-    # preferred: explicit Conv2D
     for layer in reversed(model.layers):
         if isinstance(layer, tf.keras.layers.Conv2D):
             return layer.name
@@ -94,27 +83,23 @@ def overlay_heatmap(pil_img: Image.Image, heatmap: np.ndarray, alpha=0.4):
 
 # ---------- Sidebar controls ----------
 st.sidebar.title("Settings")
-model_path = st.sidebar.text_input("Model path (SavedModel dir or .h5)", value=DEFAULT_MODEL_PATH)
-labels_path = st.sidebar.text_input("Labels JSON path (idx->label)", value=DEFAULT_LABELS_PATH)
+model_path = st.sidebar.text_input("Model path (.h5)", value=DEFAULT_MODEL_PATH)
 img_size = st.sidebar.number_input("Image size (px)", value=DEFAULT_IMG_SIZE, step=1)
 preproc = st.sidebar.selectbox("Preprocessing used in training", ["custom_0_1", "EfficientNet", "ResNet50", "MobileNetV2"])
 top_k = st.sidebar.slider("Top K predictions", 1, 10, 3)
 enable_gradcam = st.sidebar.checkbox("Enable Grad-CAM", value=True)
-reload_btn = st.sidebar.button("Load / Reload model")
 
-# ---------- Load model & labels ----------
+# ---------- Load model ----------
 model = None
 labels = None
 if model_path:
     try:
         model = load_model_cached(model_path)
+        # ✅ Auto-generate placeholder labels if no labels file
+        num_classes = model.output_shape[-1]
+        labels = {i: f"Class_{i}" for i in range(num_classes)}
     except Exception as e:
         st.sidebar.error(f"Model load error: {e}")
-if labels_path:
-    try:
-        labels = load_labels_cached(labels_path)
-    except Exception as e:
-        st.sidebar.error(f"Labels load error: {e}")
 
 # ---------- Main page ----------
 st.title("🌿 Plant Species Identification")
@@ -139,10 +124,9 @@ with col2:
         try:
             st.write(f"- Model loaded: `{model_path}`")
             st.write(f"- Input shape: {model.input_shape}")
+            st.write(f"- Classes: {len(labels)}")   # ✅ shows number of classes
         except Exception:
             st.write("- Model loaded")
-    if labels is not None:
-        st.write(f"- Classes loaded: {len(labels)}")
 
 # ---------- Prediction flow ----------
 if uploaded_file is not None:
@@ -156,9 +140,9 @@ if uploaded_file is not None:
         img = None
 
     if img is not None:
-        st.image(img, caption="Input image", use_container_width=True)   # ✅ fixed here
+        st.image(img, caption="Input image", use_container_width=True)
         if model is None or labels is None:
-            st.error("Model or labels not loaded. Set paths in the sidebar.")
+            st.error("Model not loaded.")
         else:
             img_arr = preprocess_image_pil(img, int(img_size), preproc)
             preds = predict_topk(model, img_arr, k=top_k)
@@ -184,7 +168,7 @@ if uploaded_file is not None:
                     x = np.expand_dims(img_arr, axis=0)
                     heatmap = make_gradcam_heatmap(x, model, last_conv, pred_index=preds[0][0])
                     overlay = overlay_heatmap(img, heatmap, alpha=0.45)
-                    st.image(overlay, caption="Grad-CAM overlay", use_container_width=True)   # ✅ fixed here
+                    st.image(overlay, caption="Grad-CAM overlay", use_container_width=True)
                 except Exception as e:
                     st.error(f"Grad-CAM failed: {e}")
 else:
