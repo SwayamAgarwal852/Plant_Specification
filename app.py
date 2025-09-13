@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 import io
 import matplotlib.cm as cm
+import os
 
 st.set_page_config(page_title="Plant Species Identification", layout="centered")
 
@@ -89,17 +90,18 @@ preproc = st.sidebar.selectbox("Preprocessing used in training", ["custom_0_1", 
 top_k = st.sidebar.slider("Top K predictions", 1, 10, 3)
 enable_gradcam = st.sidebar.checkbox("Enable Grad-CAM", value=True)
 
-# ---------- Load model ----------
-model = None
-labels = None
-if model_path:
+# ---------- Load model once ----------
+model, labels = None, None
+if os.path.exists(model_path):
     try:
         model = load_model_cached(model_path)
-        # ✅ Auto-generate placeholder labels if no labels file
         num_classes = model.output_shape[-1]
-        labels = {i: f"Class_{i}" for i in range(num_classes)}
+        labels = {i: f"Class_{i}" for i in range(num_classes)}  # auto-generate labels
+        st.sidebar.success(f"✅ Model loaded ({num_classes} classes)")
     except Exception as e:
-        st.sidebar.error(f"Model load error: {e}")
+        st.sidebar.error(f"❌ Model load error: {e}")
+else:
+    st.sidebar.error(f"❌ Model file not found: {model_path}")
 
 # ---------- Main page ----------
 st.title("🌿 Plant Species Identification")
@@ -121,12 +123,9 @@ with col1:
 with col2:
     st.markdown("**Model info**")
     if model is not None:
-        try:
-            st.write(f"- Model loaded: `{model_path}`")
-            st.write(f"- Input shape: {model.input_shape}")
-            st.write(f"- Classes: {len(labels)}")   # ✅ shows number of classes
-        except Exception:
-            st.write("- Model loaded")
+        st.write(f"- Model loaded: `{model_path}`")
+        st.write(f"- Input shape: {model.input_shape}")
+        st.write(f"- Classes: {len(labels)}")
 
 # ---------- Prediction flow ----------
 if uploaded_file is not None:
@@ -142,7 +141,7 @@ if uploaded_file is not None:
     if img is not None:
         st.image(img, caption="Input image", use_container_width=True)
         if model is None or labels is None:
-            st.error("Model not loaded.")
+            st.error("❌ Model not loaded. Check sidebar for errors.")
         else:
             img_arr = preprocess_image_pil(img, int(img_size), preproc)
             preds = predict_topk(model, img_arr, k=top_k)
