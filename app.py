@@ -10,8 +10,8 @@ import matplotlib.cm as cm
 st.set_page_config(page_title="Plant Species Identification", layout="centered")
 
 # ---------- DEFAULT PATHS / SETTINGS (edit if needed) ----------
-DEFAULT_MODEL_PATH = "plant_species.h5"   # or "models/best_model.h5"
-DEFAULT_LABELS_PATH = "labels.json"
+DEFAULT_MODEL_PATH = "plant_model.h5"          # make sure this file is in your repo
+DEFAULT_LABELS_PATH = "models/labels.json"     # adjust if your labels file is elsewhere
 DEFAULT_IMG_SIZE = 128
 
 # ---------- CACHING helpers ----------
@@ -66,7 +66,6 @@ def find_last_conv_layer(model):
     raise ValueError("No convolutional layer found for Grad-CAM.")
 
 def make_gradcam_heatmap(img_tensor, model, last_conv_name, pred_index=None):
-    # img_tensor: 1xHxWx3 (preprocessed)
     grad_model = tf.keras.models.Model([model.inputs], [model.get_layer(last_conv_name).output, model.output])
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_tensor)
@@ -83,7 +82,6 @@ def make_gradcam_heatmap(img_tensor, model, last_conv_name, pred_index=None):
     return heatmap.numpy()
 
 def overlay_heatmap(pil_img: Image.Image, heatmap: np.ndarray, alpha=0.4):
-    # resize heatmap to image size and apply colormap
     heatmap = np.clip(heatmap, 0, 1)
     heatmap_img = Image.fromarray(np.uint8(heatmap * 255)).resize(pil_img.size, resample=Image.BILINEAR)
     heatmap_arr = np.asarray(heatmap_img) / 255.0
@@ -158,38 +156,35 @@ if uploaded_file is not None:
         img = None
 
     if img is not None:
-        st.image(img, caption="Input image", use_column_width=True)
+        st.image(img, caption="Input image", use_container_width=True)   # ✅ fixed here
         if model is None or labels is None:
             st.error("Model or labels not loaded. Set paths in the sidebar.")
         else:
-            # preprocess and predict
             img_arr = preprocess_image_pil(img, int(img_size), preproc)
             preds = predict_topk(model, img_arr, k=top_k)
-            # map to labels
+
             results = []
             for idx, prob in preds:
                 label = labels.get(idx, f"Class {idx}")
                 results.append((label, prob))
-            # show results
+
             st.markdown("### Predictions")
             st.success(f"Top: **{results[0][0]}** — {results[0][1]*100:.2f}%")
             table = [{"Rank": i+1, "Label": r[0], "Probability": f"{r[1]*100:.2f}%"} for i,r in enumerate(results)]
             st.table(table)
 
-            # progress bars
             st.markdown("#### Confidence")
             for label, prob in results:
                 st.write(f"{label} — {prob*100:.2f}%")
                 st.progress(min(max(prob,0.0),1.0))
 
-            # Grad-CAM (optional)
             if enable_gradcam and st.button("Generate Grad-CAM"):
                 try:
                     last_conv = find_last_conv_layer(model)
                     x = np.expand_dims(img_arr, axis=0)
                     heatmap = make_gradcam_heatmap(x, model, last_conv, pred_index=preds[0][0])
                     overlay = overlay_heatmap(img, heatmap, alpha=0.45)
-                    st.image(overlay, caption="Grad-CAM overlay", use_column_width=True)
+                    st.image(overlay, caption="Grad-CAM overlay", use_container_width=True)   # ✅ fixed here
                 except Exception as e:
                     st.error(f"Grad-CAM failed: {e}")
 else:
